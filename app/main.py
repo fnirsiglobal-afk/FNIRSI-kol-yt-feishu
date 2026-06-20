@@ -473,31 +473,46 @@ async def status():
 
 @app.get("/admin/deep-patch/{record_id}")
 async def deep_patch(record_id: str):
-    """完整诊断 PATCH 请求，包括 headers、重定向、原始响应"""
+    """同时测试标准域名和企业专属域名"""
     async with httpx.AsyncClient(follow_redirects=False) as client:
         token = await get_feishu_token(client)
-        
-        url = (f"https://open.feishu.cn/open-apis/bitable/v1/apps/{BITABLE_APP_TOKEN}"
-               f"/tables/{BITABLE_TABLE_ID}/records/{record_id}")
-        
-        r = await client.patch(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json={"fields": {"频道名称": "test123"}},
-            timeout=15,
-        )
-        
-        return JSONResponse({
-            "status":           r.status_code,
-            "url":              url,
-            "response_headers": dict(r.headers),
-            "body":             r.text[:500],
-            "token_len":        len(token),
-            "token_start":      token[:15],
-        })
+        results = {}
+
+        for label, base in [
+            ("standard",  "https://open.feishu.cn/open-apis"),
+            ("custom",    "https://open.qseatj2kzm.feishu.cn/open-apis"),
+        ]:
+            url = f"{base}/bitable/v1/apps/{BITABLE_APP_TOKEN}/tables/{BITABLE_TABLE_ID}/records/{record_id}"
+            try:
+                r = await client.patch(
+                    url,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"fields": {"频道名称": "test123"}},
+                    timeout=15,
+                )
+                results[label] = {"status": r.status_code, "url": url, "body": r.text[:300]}
+            except Exception as e:
+                results[label] = {"error": str(e), "url": url}
+
+        return JSONResponse({"token_start": token[:15], "results": results})
+
+
+@app.get("/admin/list-fields")
+async def list_fields():
+    """列出副本表所有字段名和类型"""
+    async with httpx.AsyncClient() as client:
+        token = await get_feishu_token(client)
+        url = f"{FS_BASE}/bitable/v1/apps/{BITABLE_APP_TOKEN}/tables/{BITABLE_TABLE_ID}/fields"
+        r = await client.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        try:
+            data = r.json()
+        except Exception:
+            return JSONResponse({"status": r.status_code, "body": r.text[:300]})
+        fields = [
+            {"name": f.get("field_name"), "type": f.get("type"), "id": f.get("field_id")}
+            for f in data.get("data", {}).get("items", [])
+        ]
+        return JSONResponse({"status": r.status_code, "fields": fields})
 
 
 @app.get("/admin/patch-test/{record_id}")
