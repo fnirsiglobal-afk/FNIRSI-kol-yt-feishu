@@ -239,9 +239,13 @@ async def update_record(client: httpx.AsyncClient, token: str,
         json={"fields": fields},
         timeout=20,
     )
-    data = r.json()
+    # 飞书在 404/50x 时可能返回非 JSON，需安全解析
+    try:
+        data = r.json()
+    except Exception:
+        raise RuntimeError(f"飞书写入失败 record={record_id}: HTTP {r.status_code} - {r.text[:200]}")
     if data.get("code") != 0:
-        raise RuntimeError(f"飞书写入失败 record={record_id}: {data.get('msg')}")
+        raise RuntimeError(f"飞书写入失败 record={record_id}: code={data.get('code')} msg={data.get('msg')}")
     return data
 
 
@@ -405,13 +409,19 @@ async def webhook_youtube(request: Request):
     except Exception:
         raise HTTPException(400, "请求体必须是 JSON")
 
-    record_id   = (body.get("record_id") or "").strip()
-    channel_url = (body.get("channel_url") or "").strip()
+    record_id = (body.get("record_id") or "").strip()
+
+    # channel_url 可能是纯字符串，也可能是飞书超链接对象 {"text":..., "link":...}
+    raw_url = body.get("channel_url") or ""
+    if isinstance(raw_url, dict):
+        channel_url = (raw_url.get("link") or raw_url.get("text") or "").strip()
+    else:
+        channel_url = str(raw_url).strip()
 
     if not record_id:
         raise HTTPException(400, "缺少 record_id")
     if not channel_url:
-        raise HTTPException(400, "缺少 channel_url")
+        raise HTTPException(400, "缺少 channel_url（频道链接字段为空）")
 
     logger.info(f"Webhook 触发：record={record_id}  url={channel_url}")
 
