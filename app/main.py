@@ -471,22 +471,43 @@ async def status():
 
 @app.get("/admin/test-write/{record_id}")
 async def test_write(record_id: str):
-    """测试对指定 record_id 的写入权限，写入一个测试字段"""
+    """测试对指定 record_id 的写入权限，返回完整调试信息"""
     async with httpx.AsyncClient() as client:
         token = await get_feishu_token(client)
-        url = (f"{FS_BASE}/bitable/v1/apps/{BITABLE_APP_TOKEN}"
-               f"/tables/{BITABLE_TABLE_ID}/records/{record_id}")
-        r = await client.patch(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            json={"fields": {"频道名称": "写入测试-可删除"}},
-            timeout=15,
-        )
-        try:
-            data = r.json()
-        except Exception:
-            return JSONResponse({"http_status": r.status_code, "raw": r.text[:500]})
-        return JSONResponse({"http_status": r.status_code, "feishu_response": data})
+        
+        # 同时测试两个可能的 API 域名
+        results = {}
+        for domain in ["https://open.feishu.cn", "https://open.larksuite.com"]:
+            url = (f"{domain}/open-apis/bitable/v1/apps/{BITABLE_APP_TOKEN}"
+                   f"/tables/{BITABLE_TABLE_ID}/records/{record_id}")
+            try:
+                r = await client.patch(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"fields": {"频道名称": "写入测试-可删除"}},
+                    timeout=15,
+                )
+                try:
+                    data = r.json()
+                except Exception:
+                    data = r.text[:300]
+                results[domain] = {"http_status": r.status_code, "response": data}
+            except Exception as e:
+                results[domain] = {"error": str(e)}
+        
+        # 也测试读取用的 URL 格式（不带 record_id）
+        read_url = (f"https://open.feishu.cn/open-apis/bitable/v1/apps/{BITABLE_APP_TOKEN}"
+                    f"/tables/{BITABLE_TABLE_ID}/records?page_size=1")
+        r2 = await client.get(read_url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        results["read_check"] = {"http_status": r2.status_code, "url": read_url}
+        
+        return JSONResponse({
+            "token_prefix": token[:20] + "...",
+            "bitable_app_token": BITABLE_APP_TOKEN,
+            "table_id": BITABLE_TABLE_ID,
+            "record_id": record_id,
+            "results": results,
+        })
 
 
 @app.get("/admin/debug-records")
