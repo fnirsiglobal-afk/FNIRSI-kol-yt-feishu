@@ -469,6 +469,32 @@ async def status():
     })
 
 
+@app.get("/admin/patch-test/{record_id}")
+async def patch_test(record_id: str):
+    """最简单的 PATCH 测试，逐步缩小问题范围"""
+    async with httpx.AsyncClient() as client:
+        token = await get_feishu_token(client)
+        
+        tests = {}
+        
+        # 测试1：PATCH 副本表的这条记录（当前配置）
+        url1 = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{BITABLE_APP_TOKEN}/tables/{BITABLE_TABLE_ID}/records/{record_id}"
+        r1 = await client.patch(url1, headers={"Authorization": f"Bearer {token}"}, json={"fields": {"频道名称": "test"}}, timeout=15)
+        tests["patch_current"] = {"url": url1, "status": r1.status_code, "body": r1.text[:200]}
+
+        # 测试2：PATCH 原表（tblzlTKTH8z2R16P）第一条记录
+        url2 = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{BITABLE_APP_TOKEN}/tables/tblzlTKTH8z2R16P/records/{record_id}"
+        r2 = await client.patch(url2, headers={"Authorization": f"Bearer {token}"}, json={"fields": {"频道名称": "test"}}, timeout=15)
+        tests["patch_original_table"] = {"url": url2, "status": r2.status_code, "body": r2.text[:200]}
+
+        # 测试3：GET 副本表单条记录（直接按 record_id 读）
+        url3 = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{BITABLE_APP_TOKEN}/tables/{BITABLE_TABLE_ID}/records/{record_id}"
+        r3 = await client.get(url3, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        tests["get_single_record"] = {"status": r3.status_code, "body": r3.text[:200]}
+
+        return JSONResponse(tests)
+
+
 @app.get("/admin/list-apps")
 async def list_apps():
     """列出应用有权访问的多维表格，验证 app_token 是否正确"""
