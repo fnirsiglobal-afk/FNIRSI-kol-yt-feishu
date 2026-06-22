@@ -79,6 +79,46 @@ def parse_social_links(description: str, branding_keywords: str = "") -> dict:
             result[platform] = prefix + m.group(1)
     return result
 
+async def fetch_channel_links(client: httpx.AsyncClient, channel_url: str) -> str:
+    """
+    抓取 YouTube 频道 about 页面，提取链接卡片区域的所有 URL（含裸域名）。
+    返回拼接成一段文本，供 parse_social_links 搜索。
+    """
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        base = channel_url.rstrip("/")
+        r = await client.get(base + "/about", headers=headers, timeout=15, follow_redirects=True)
+        html = r.text
+
+        collected = []
+
+        # 方式1：提取 JSON 数据里的完整 URL（带 https://）
+        urls = re.findall(r'"url"\s*:\s*"(https?://[^"]+)"', html)
+        external = [
+            u for u in urls
+            if not re.search(r'(youtube\.com|youtu\.be|google\.com|gstatic\.com|ggpht\.com)', u, re.I)
+        ]
+        collected.extend(external)
+
+        # 方式2：提取 JSON 里 text 字段的裸域名链接（bookledge 这类频道用这种格式）
+        # 匹配 "text":"instagram.com/xxx" 或 "text":"facebook.com/xxx"
+        bare = re.findall(
+            r'"text"\s*:\s*"((?:instagram|twitter|x|facebook|tiktok)\.com/[\w.@/-]+)"',
+            html, re.I
+        )
+        collected.extend(bare)
+
+        if collected:
+            logger.info(f"频道页面抓到外链：{collected[:6]}")
+        return " ".join(collected)
+    except Exception as e:
+        logger.warning(f"抓取频道页面失败（忽略）: {e}")
+        return ""
+
+
 def hyperlink(url: str, text: str = None):
     if not url:
         return None
@@ -155,6 +195,11 @@ async def get_latest_videos(client: httpx.AsyncClient, channel: dict, max_count=
 
 
 # ══════════════════════════════════════════════════════════════
+#  抓取频道 About 页面的链接卡片（API 不返回这部分）
+# ══════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════
 #  核心：组装飞书字段
 # ══════════════════════════════════════════════════════════════
 
@@ -176,12 +221,15 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
     min_views      = min(views) if views else None
     latest_publish = fmt_date(videos[0]["snippet"].get("publishedAt")) if videos else None
 
-    # brandingSettings.channel.keywords 里有时包含社媒链接
+    # brandingSettings keywords
     branding_kw = (channel.get("brandingSettings", {})
                    .get("channel", {})
                    .get("keywords", ""))
-    social = parse_social_links(description, branding_kw)
-    email  = parse_email(description)
+    # 抓取频道页面链接卡片（补充 API 拿不到的社媒链接）
+    page_links = await fetch_channel_links(client, channel_url)
+    # 合并所有来源一起搜索
+    social = parse_social_links(description + " " + branding_kw + " " + page_links)
+    email  = parse_email(description + " " + page_links)
 
     fields = {
         "频道链接":         hyperlink(channel_url.strip()),
