@@ -216,7 +216,7 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
     return {k: v for k, v in fields.items() if v is not None}
 
 async def fetch_about_page_links(
-    client: httpx.AsyncClient, channel_url: str  # client 保留签名兼容，实际不用
+    client: httpx.AsyncClient, channel_url: str
 ) -> dict:
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -225,15 +225,25 @@ async def fetch_about_page_links(
             "--flat-playlist",
             "--playlist-items", "0",
             "--no-warnings",
-            channel_url,
+            "--no-check-certificates",
+            channel_url.rstrip("/") + "/about",   # 直接传 about 页，强制只取频道元数据
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        
+        # 加这两行
+        logger.info(f"yt-dlp returncode={proc.returncode} stderr={stderr.decode()[:300]}")
+        
         if proc.returncode != 0:
             logger.warning(f"yt-dlp 失败 {channel_url}: {stderr.decode()[:300]}")
             return {}
+        
         data = json.loads(stdout.decode())
+        
+        # 加这行——看 yt-dlp 实际返回了哪些字段
+        logger.info(f"yt-dlp data keys={list(data.keys())}, links={data.get('links')}, channel_url_field={data.get('channel_url')}")
+        
     except asyncio.TimeoutError:
         logger.warning(f"yt-dlp 超时: {channel_url}")
         return {}
@@ -241,18 +251,19 @@ async def fetch_about_page_links(
         logger.warning(f"yt-dlp 异常: {e}")
         return {}
 
-    # 优先用 links 字段（yt-dlp 2024+ 直接解析好的外链列表）
     links_field = data.get("links") or []
     if links_field:
         explicit_urls = " ".join(lk.get("url", "") for lk in links_field)
         result = parse_social_links(explicit_urls)
+        logger.info(f"yt-dlp links字段内容: {links_field}")
+        logger.info(f"yt-dlp links字段解析结果: {result}")
         if result:
-            logger.info(f"yt-dlp links 字段找到: {result}")
             return result
 
-    # 降级：从 description + tags 里正则搜索
     combined = data.get("description", "") + " " + " ".join(data.get("tags") or [])
-    return parse_social_links(combined)
+    result2 = parse_social_links(combined)
+    logger.info(f"yt-dlp 降级解析结果: {result2}")
+    return result2
   
 # ══════════════════════════════════════════════════════════════
 #  飞书 API
