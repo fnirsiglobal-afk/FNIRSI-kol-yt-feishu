@@ -226,13 +226,17 @@ async def update_record(client: httpx.AsyncClient, token: str,
         json={"fields": fields},
         timeout=20,
     )
+    # HTTP 200 即视为成功，兼容飞书企业版返回格式差异
+    if r.status_code == 200:
+        logger.info(f"飞书写入成功 record={record_id}")
+        return {"code": 0}
+    # 非 200 才报错
     try:
         data = r.json()
+        msg = data.get("msg", r.text[:200])
     except Exception:
-        raise RuntimeError(f"飞书写入失败 record={record_id}: HTTP {r.status_code} - {r.text[:200]}")
-    if data.get("code") != 0:
-        raise RuntimeError(f"飞书写入失败 record={record_id}: code={data.get('code')} msg={data.get('msg')}")
-    return data
+        msg = r.text[:200]
+    raise RuntimeError(f"飞书写入失败 record={record_id}: HTTP {r.status_code} - {msg}")
 
 
 async def list_all_records(client: httpx.AsyncClient, token: str) -> list:
