@@ -172,31 +172,48 @@ async def get_latest_videos(client: httpx.AsyncClient, channel: dict, max_count=
     if not uploads:
         return []
 
-    # 多取一些，过滤 Shorts 后保证够 max_count 条
-    pl = await yt_get(client, f"playlistItems?part=snippet&playlistId={uploads}&maxResults=18")
-    video_ids = [
-        i["snippet"]["resourceId"]["videoId"]
-        for i in pl.get("items", [])
-        if i.get("snippet", {}).get("resourceId")
-    ]
-    if not video_ids:
+    shorts_playlist = "UUSH" + uploads[2:]
+
+    # 先拿 Shorts ID 集合
+    shorts_ids: set = set()
+    try:
+        sp = await yt_get(client, f"playlistItems?part=snippet&playlistId={shorts_playlist}&maxResults=50")
+        shorts_ids = {
+            i["snippet"]["resourceId"]["videoId"]
+            for i in sp.get("items", [])
+            if i.get("snippet", {}).get("resourceId")
+        }
+    except Exception:
+        pass
+
+    # 分页拉 uploads，直到凑够 max_count 条普通视频
+    regular_ids = []
+    page_token = None
+
+    while len(regular_ids) < max_count:
+        path = f"playlistItems?part=snippet&playlistId={uploads}&maxResults=50"
+        if page_token:
+            path += f"&pageToken={page_token}"
+
+        pl = await yt_get(client, path)
+        items = pl.get("items", [])
+
+        for i in items:
+            vid = (i.get("snippet", {}).get("resourceId", {}).get("videoId"))
+            if vid and vid not in shorts_ids:
+                regular_ids.append(vid)
+                if len(regular_ids) >= max_count:
+                    break
+
+        page_token = pl.get("nextPageToken")
+        if not page_token or not items:
+            break  # 没有更多页了，频道普通视频本身不足6条
+
+    if not regular_ids:
         return []
 
-    vd = await yt_get(client, f"videos?part=snippet,statistics&id={','.join(video_ids)}")
-    all_videos = vd.get("items", [])
-
-    # 宽高比过滤：只保留横屏视频（普通视频）
-    def is_regular_video(video: dict) -> bool:
-        thumbs = video.get("snippet", {}).get("thumbnails", {})
-        for key in ("maxres", "high", "medium", "default"):
-            t = thumbs.get(key)
-            if t and t.get("width") and t.get("height"):
-                return t["width"] > t["height"]
-        return True  # 无缩略图信息时默认保留
-
-    regular_videos = [v for v in all_videos if is_regular_video(v)]
-    return regular_videos[:max_count]
-
+    vd = await yt_get(client, f"videos?part=snippet,statistics&id={','.join(regular_ids[:max_count])}")
+    return vd.get("items", [])
 
 # ══════════════════════════════════════════════════════════════
 #  抓取频道 About 页面的链接卡片（API 不返回这部分）
