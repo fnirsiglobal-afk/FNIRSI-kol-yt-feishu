@@ -255,7 +255,7 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
     fields = {
         "频道链接":         hyperlink(channel_url.strip()),
         "频道名称":         snippet.get("title", ""),
-        "国家/地区":        snippet.get("country", ""),
+        "国家/地区":        snippet.get("country", "") or "/",
         "邮箱":             {"text": email, "link": f"mailto:{email}"} if email else None,
         "订阅量":           int(stats["subscriberCount"])
                             if not stats.get("hiddenSubscriberCount") and stats.get("subscriberCount")
@@ -264,10 +264,10 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
         "近6条均播":        avg_views,
         "近6条最高播":      max_views,
         "近6条最低播":      min_views,
-        "INS":              hyperlink(social.get("INS")),
-        "X":                hyperlink(social.get("X")),
-        "FB":               hyperlink(social.get("FB")),
-        "TK":               hyperlink(social.get("TK")),
+        "INS":              hyperlink(social.get("INS")) or {"text": "/", "link": ""},  # 无数据填 /
+        "X":                hyperlink(social.get("X")) or {"text": "/", "link": ""},
+        "FB":               hyperlink(social.get("FB")) or {"text": "/", "link": ""},
+        "TK":               hyperlink(social.get("TK")) or {"text": "/", "link": ""},
         "最后更新时间":     now_ts(),
     }
     return {k: v for k, v in fields.items() if v is not None}
