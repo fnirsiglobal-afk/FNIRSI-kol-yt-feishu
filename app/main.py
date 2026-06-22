@@ -171,7 +171,9 @@ async def get_latest_videos(client: httpx.AsyncClient, channel: dict, max_count=
                .get("uploads", ""))
     if not uploads:
         return []
-    pl = await yt_get(client, f"playlistItems?part=snippet&playlistId={uploads}&maxResults={max_count}")
+
+    # 多取一些，过滤 Shorts 后保证够 max_count 条
+    pl = await yt_get(client, f"playlistItems?part=snippet&playlistId={uploads}&maxResults=18")
     video_ids = [
         i["snippet"]["resourceId"]["videoId"]
         for i in pl.get("items", [])
@@ -179,8 +181,21 @@ async def get_latest_videos(client: httpx.AsyncClient, channel: dict, max_count=
     ]
     if not video_ids:
         return []
+
     vd = await yt_get(client, f"videos?part=snippet,statistics&id={','.join(video_ids)}")
-    return vd.get("items", [])
+    all_videos = vd.get("items", [])
+
+    # 宽高比过滤：只保留横屏视频（普通视频）
+    def is_regular_video(video: dict) -> bool:
+        thumbs = video.get("snippet", {}).get("thumbnails", {})
+        for key in ("maxres", "high", "medium", "default"):
+            t = thumbs.get(key)
+            if t and t.get("width") and t.get("height"):
+                return t["width"] > t["height"]
+        return True  # 无缩略图信息时默认保留
+
+    regular_videos = [v for v in all_videos if is_regular_video(v)]
+    return regular_videos[:max_count]
 
 
 # ══════════════════════════════════════════════════════════════
