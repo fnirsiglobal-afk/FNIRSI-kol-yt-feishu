@@ -446,16 +446,20 @@ async def webhook_youtube(request: Request):
         raise HTTPException(400, "缺少 channel_url")
 
     logger.info(f"Webhook 触发：record={record_id}  url={channel_url}")
-    try:
-        async with httpx.AsyncClient() as client:
-            fields   = await fetch_channel_fields(client, channel_url)
-            fs_token = await get_feishu_token(client)
-            await update_record(client, fs_token, record_id, fields)
-    except RuntimeError as e:
-        raise HTTPException(502, str(e))
 
-    logger.info(f"Webhook 完成：record={record_id}")
-    return JSONResponse({"code": 0, "msg": "success", "record_id": record_id})
+    # 立即返回，后台异步处理
+    async def _process():
+        try:
+            async with httpx.AsyncClient() as client:
+                fields   = await fetch_channel_fields(client, channel_url)
+                fs_token = await get_feishu_token(client)
+                await update_record(client, fs_token, record_id, fields)
+            logger.info(f"Webhook 完成：record={record_id}")
+        except Exception as e:
+            logger.error(f"Webhook 处理失败：record={record_id} → {e}")
+
+    asyncio.create_task(_process())
+    return JSONResponse({"code": 0, "msg": "accepted", "record_id": record_id})
 
 
 @app.post("/admin/refresh-now")
