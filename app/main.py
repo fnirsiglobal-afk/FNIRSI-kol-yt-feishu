@@ -243,7 +243,7 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
         "订阅量":           int(stats["subscriberCount"])
                             if not stats.get("hiddenSubscriberCount") and stats.get("subscriberCount")
                             else None,
-        "最新视频发布时间": latest_publish,
+        "最新发布时间": latest_publish,
         "近6条均播":        avg_views,
         "近6条最高播":      max_views,
         "近6条最低播":      min_views,
