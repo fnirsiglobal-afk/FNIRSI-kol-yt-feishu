@@ -158,62 +158,50 @@ async def get_latest_videos(client: httpx.AsyncClient, channel: dict, max_count=
 #  核心：组装飞书字段
 # ══════════════════════════════════════════════════════════════
 
-async def fetch_about_page_links(
-    client: httpx.AsyncClient, channel_url: str
-) -> dict:
-    """
-    爬取 YouTube 频道 about 页面，提取社媒链接。
-    YouTube 将 about 页面的链接数据以 JSON 形式嵌入 window.__data__ 或 ytInitialData 中。
-    此处直接对整段 HTML 文本运行正则，避免解析复杂 JSON。
-    """
-    # 构造 about URL：handle / channel / user 格式均兼容
-    if "/about" not in channel_url:
-        about_url = channel_url.rstrip("/") + "/about"
-    else:
-        about_url = channel_url
+async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> dict:
+    kind, value = extract_channel_identifier(channel_url)
+    if not kind:
+        raise RuntimeError(f"无法识别频道链接格式: {channel_url}")
 
-    try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        r = await client.get(about_url, headers=headers, timeout=15,
-                              follow_redirects=True)
-        if r.status_code != 200:
-            logger.warning(f"about 页面请求失败 HTTP {r.status_code}: {about_url}")
-            return {}
-        html = r.text
-    except Exception as e:
-        logger.warning(f"about 页面请求异常: {e}")
-        return {}
+    channel     = await resolve_channel(client, kind, value)
+    snippet     = channel.get("snippet", {})
+    stats       = channel.get("statistics", {})
+    description = snippet.get("description", "")
 
-    # YouTube 把外链放在 ytInitialData 的 channelExternalLinkViewModel 里，
-    # 其中 link.commandRuns[].onTap.innertubeCommand.urlEndpoint.url 是 YouTube 重定向 URL，
-    # 格式形如 https://www.youtube.com/redirect?...&q=https%3A%2F%2Finstagram.com%2Fxxx
-    # 直接从 HTML 文本中提取 q= 参数里的真实 URL 即可。
-    real_urls: list[str] = []
+    videos = await get_latest_videos(client, channel, max_count=6)
+    views  = [int(v.get("statistics", {}).get("viewCount", 0)) for v in videos]
 
-    # 方式1：从 redirect URL 的 q= 参数中提取真实目标
-    for encoded in re.findall(r'"url":"https://www\.youtube\.com/redirect\?[^"]*?q=([^&"\\]+)', html):
-        try:
-            from urllib.parse import unquote
-            real_urls.append(unquote(encoded))
-        except Exception:
-            pass
+    avg_views      = round(sum(views) / len(views)) if views else None
+    max_views      = max(views) if views else None
+    min_views      = min(views) if views else None
+    latest_publish = fmt_date(videos[0]["snippet"].get("publishedAt")) if videos else None
 
-    # 方式2：直接出现的外链（有些频道直接暴露明文）
-    direct = re.findall(
-        r'"(https?://(?:(?!youtube\.com|youtu\.be|yt\.be|google\.com)[^"\\]{8,}))"',
-        html,
-    )
-    real_urls.extend(direct)
+    # brandingSettings.channel.keywords 里有时包含社媒链接
+    branding_kw = (channel.get("brandingSettings", {})
+                   .get("channel", {})
+                   .get("keywords", ""))
+    social = parse_social_links(description, branding_kw)
+    email  = parse_email(description)
 
-    combined = " ".join(real_urls)
-    return parse_social_links(combined)
+    fields = {
+        "频道链接":         hyperlink(channel_url.strip()),
+        "频道名称":         snippet.get("title", ""),
+        "国家/地区":        snippet.get("country", ""),
+        "邮箱":             {"text": email, "link": f"mailto:{email}"} if email else None,
+        "订阅量":           int(stats["subscriberCount"])
+                            if not stats.get("hiddenSubscriberCount") and stats.get("subscriberCount")
+                            else None,
+        "最新视频发布时间": latest_publish,
+        "近6条均播":        avg_views,
+        "近6条最高播":      max_views,
+        "近6条最低播":      min_views,
+        "INS":              hyperlink(social.get("INS")),
+        "X":                hyperlink(social.get("X")),
+        "FB":               hyperlink(social.get("FB")),
+        "TK":               hyperlink(social.get("TK")),
+        "最后更新时间":     now_ts(),
+    }
+    return {k: v for k, v in fields.items() if v is not None}
 
 
 # ══════════════════════════════════════════════════════════════
