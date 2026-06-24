@@ -245,7 +245,7 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
     fields = {
         "频道链接":      hyperlink(channel_url.strip()),
         "频道名称":      snippet.get("title", ""),
-        "国家/地区":     snippet.get("country", "") or "/",
+        "国家/地区":     snippet.get("country", "") or None,
         "邮箱":          {"text": email, "link": f"mailto:{email}"} if email else None,
         "订阅量":        int(stats["subscriberCount"])
                          if not stats.get("hiddenSubscriberCount") and stats.get("subscriberCount")
