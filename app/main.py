@@ -285,6 +285,7 @@ async def get_feishu_token(client: httpx.AsyncClient) -> str:
 
 async def update_record(client: httpx.AsyncClient, token: str,
                         record_id: str, fields: dict):
+    # 加这一行
     logger.info(f"写入字段内容 record={record_id}: {fields}")
     url = (f"{FS_BASE}/bitable/v1/apps/{BITABLE_APP_TOKEN}"
            f"/tables/{BITABLE_TABLE_ID}/records/{record_id}")
@@ -294,6 +295,8 @@ async def update_record(client: httpx.AsyncClient, token: str,
         json={"fields": fields},
         timeout=20,
     )
+    # 加这一行
+    logger.info(f"飞书响应 record={record_id}: {r.text[:500]}")                      
     if r.status_code == 200:
         logger.info(f"飞书写入成功 record={record_id}")
         return {"code": 0}
