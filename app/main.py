@@ -33,17 +33,38 @@ BITABLE_APP_TOKEN = os.environ["BITABLE_APP_TOKEN"]
 BITABLE_TABLE_ID  = os.environ["BITABLE_TABLE_ID"]
 
 SCHEDULE_TZ            = os.getenv("SCHEDULE_TZ", "Asia/Shanghai")
-POLL_INTERVAL_MINUTES  = int(os.getenv("POLL_INTERVAL_MINUTES", "1"))   # 轮询间隔（分钟）
-REFRESH_DAYS           = int(os.getenv("REFRESH_DAYS", "14"))           # 自动到期天数
+POLL_INTERVAL_MINUTES  = int(os.getenv("POLL_INTERVAL_MINUTES", "1"))
+REFRESH_DAYS           = int(os.getenv("REFRESH_DAYS", "14"))
 
-# 飞书「刷新状态」字段的选项值（需与飞书表格中的单选选项名称完全一致）
-STATUS_PENDING  = "待刷新"   # 按钮触发时飞书写入此值
-STATUS_DONE     = "已完成"   # 刷新完成后写回此值
+STATUS_PENDING  = "待刷新"
+STATUS_DONE     = "已完成"
 
 YT_BASE = "https://www.googleapis.com/youtube/v3"
 FS_BASE = "https://open.feishu.cn/open-apis"
 
 _refresh_lock = asyncio.Lock()
+
+COUNTRY_MAP = {
+    "AF": "阿富汗", "AL": "阿尔巴尼亚", "DZ": "阿尔及利亚", "AR": "阿根廷",
+    "AU": "澳大利亚", "AT": "奥地利", "BE": "比利时", "BR": "巴西",
+    "CA": "加拿大", "CL": "智利", "CN": "中国", "CO": "哥伦比亚",
+    "HR": "克罗地亚", "CZ": "捷克", "DK": "丹麦", "EG": "埃及",
+    "FI": "芬兰", "FR": "法国", "DE": "德国", "GH": "加纳",
+    "GR": "希腊", "HK": "香港", "HU": "匈牙利", "IN": "印度",
+    "ID": "印度尼西亚", "IE": "爱尔兰", "IL": "以色列", "IT": "意大利",
+    "JP": "日本", "KE": "肯尼亚", "KR": "韩国", "MY": "马来西亚",
+    "MX": "墨西哥", "NL": "荷兰", "NZ": "新西兰", "NG": "尼日利亚",
+    "NO": "挪威", "PK": "巴基斯坦", "PH": "菲律宾", "PL": "波兰",
+    "PT": "葡萄牙", "RO": "罗马尼亚", "RU": "俄罗斯", "SA": "沙特阿拉伯",
+    "ZA": "南非", "ES": "西班牙", "SE": "瑞典", "CH": "瑞士",
+    "TW": "台湾", "TH": "泰国", "TR": "土耳其", "UA": "乌克兰",
+    "AE": "阿联酋", "GB": "英国", "US": "美国", "VN": "越南",
+    "SG": "新加坡", "BD": "孟加拉国", "MM": "缅甸", "KH": "柬埔寨",
+    "LK": "斯里兰卡", "NP": "尼泊尔", "IQ": "伊拉克", "IR": "伊朗",
+    "MA": "摩洛哥", "TN": "突尼斯", "ET": "埃塞俄比亚", "TZ": "坦桑尼亚",
+    "UG": "乌干达", "ZW": "津巴布韦", "EC": "厄瓜多尔", "PE": "秘鲁",
+    "VE": "委内瑞拉", "BO": "玻利维亚", "PY": "巴拉圭", "UY": "乌拉圭",
+}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -242,10 +263,13 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
     social = parse_social_links(description + " " + branding_kw + " " + page_links)
     email  = parse_email(description + " " + page_links)
 
+    country_code = snippet.get("country", "")
+    country_name = COUNTRY_MAP.get(country_code, country_code) or None
+
     fields = {
         "频道链接":      hyperlink(channel_url.strip()),
         "频道名称":      snippet.get("title", ""),
-        "国家/地区":     snippet.get("country", "") or None,
+        "国家/地区":     country_name,
         "邮箱":          email or None,
         "订阅量":        int(stats["subscriberCount"])
                          if not stats.get("hiddenSubscriberCount") and stats.get("subscriberCount")
@@ -254,13 +278,11 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
         "近6条均播":     avg_views,
         "近6条最高播":   max_views,
         "近6条最低播":   min_views,
-        # ✅ 修复：无社媒链接时不写入该字段，避免空 link 导致飞书静默丢弃整条记录
         "INS":           hyperlink(social.get("INS")),
         "X":             hyperlink(social.get("X")),
         "FB":            hyperlink(social.get("FB")),
         "TK":            hyperlink(social.get("TK")),
         "最后更新时间":  now_ts(),
-        # 刷新完成后把状态写回「已完成」
         "刷新状态":      STATUS_DONE,
     }
     return {k: v for k, v in fields.items() if v is not None}
@@ -285,8 +307,6 @@ async def get_feishu_token(client: httpx.AsyncClient) -> str:
 
 async def update_record(client: httpx.AsyncClient, token: str,
                         record_id: str, fields: dict):
-    # 加这一行
-    logger.info(f"写入字段内容 record={record_id}: {fields}")
     url = (f"{FS_BASE}/bitable/v1/apps/{BITABLE_APP_TOKEN}"
            f"/tables/{BITABLE_TABLE_ID}/records/{record_id}")
     r = await client.put(
@@ -295,8 +315,6 @@ async def update_record(client: httpx.AsyncClient, token: str,
         json={"fields": fields},
         timeout=20,
     )
-    # 加这一行
-    logger.info(f"飞书响应 record={record_id}: {r.text[:500]}")                      
     if r.status_code == 200:
         logger.info(f"飞书写入成功 record={record_id}")
         return {"code": 0}
@@ -334,7 +352,6 @@ async def list_all_records(client: httpx.AsyncClient, token: str) -> list:
         for item in items:
             fields = item.get("fields", {})
 
-            # 解析频道链接
             url_field = fields.get("频道链接")
             if isinstance(url_field, dict):
                 ch_url = url_field.get("link", "") or url_field.get("text", "")
@@ -345,20 +362,18 @@ async def list_all_records(client: httpx.AsyncClient, token: str) -> list:
             if not ch_url.strip():
                 continue
 
-            # 解析刷新状态（单选字段飞书返回字符串）
             status_field = fields.get("刷新状态")
             if isinstance(status_field, dict):
                 status = status_field.get("text", "") or status_field.get("value", "")
             else:
                 status = status_field or ""
 
-            # 解析最后更新时间（时间戳字段，毫秒）
-            last_updated_ts = fields.get("最后更新时间")  # 可能是 int 或 None
+            last_updated_ts = fields.get("最后更新时间")
 
             records.append({
-                "record_id":      item["record_id"],
-                "channel_url":    ch_url.strip(),
-                "status":         str(status).strip(),
+                "record_id":       item["record_id"],
+                "channel_url":     ch_url.strip(),
+                "status":          str(status).strip(),
                 "last_updated_ts": int(last_updated_ts) if last_updated_ts else None,
             })
 
@@ -370,7 +385,7 @@ async def list_all_records(client: httpx.AsyncClient, token: str) -> list:
 
 
 # ══════════════════════════════════════════════════════════════
-#  轮询任务（替代原定时全量刷新 + 支持按钮触发 + 支持自动到期）
+#  轮询任务
 # ══════════════════════════════════════════════════════════════
 
 async def poll_and_refresh():
@@ -399,7 +414,6 @@ async def poll_and_refresh():
                 logger.error(f"轮询：拉取记录失败 → {e}")
                 return
 
-            # 筛选需要刷新的记录
             to_refresh = []
             for rec in records:
                 is_pending = rec["status"] == STATUS_PENDING
@@ -427,7 +441,6 @@ async def poll_and_refresh():
                 url = rec["channel_url"]
                 try:
                     fields = await fetch_channel_fields(client, url)
-                    # 每50条刷新一次 token
                     if i % 50 == 0:
                         token = await get_feishu_token(client)
                     await update_record(client, token, rid, fields)
