@@ -34,7 +34,7 @@ BITABLE_TABLE_ID  = os.environ["BITABLE_TABLE_ID"]
 
 SCHEDULE_TZ            = os.getenv("SCHEDULE_TZ", "Asia/Shanghai")
 POLL_INTERVAL_MINUTES  = int(os.getenv("POLL_INTERVAL_MINUTES", "1"))   # 轮询间隔（分钟）
-REFRESH_DAYS           = int(os.getenv("REFRESH_DAYS", "14"))           # 自动到期天数
+REFRESH_DAYS           = int(os.getenv("REFRESH_DAYS", "7"))           # 自动到期天数
 
 # 飞书「刷新状态」字段的选项值（需与飞书表格中的单选选项名称完全一致）
 STATUS_PENDING  = "待刷新"   # 按钮触发时飞书写入此值
