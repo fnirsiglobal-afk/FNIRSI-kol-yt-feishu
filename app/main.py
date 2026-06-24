@@ -245,26 +245,7 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
     fields = {
         "频道链接":      hyperlink(channel_url.strip()),
         "频道名称":      snippet.get("title", ""),
-        COUNTRY_MAP = {
-          "AF": "阿富汗", "AL": "阿尔巴尼亚", "DZ": "阿尔及利亚", "AR": "阿根廷",
-          "AU": "澳大利亚", "AT": "奥地利", "BE": "比利时", "BR": "巴西",
-          "CA": "加拿大", "CL": "智利", "CN": "中国", "CO": "哥伦比亚",
-          "HR": "克罗地亚", "CZ": "捷克", "DK": "丹麦", "EG": "埃及",
-          "FI": "芬兰", "FR": "法国", "DE": "德国", "GH": "加纳",
-          "GR": "希腊", "HK": "香港", "HU": "匈牙利", "IN": "印度",
-          "ID": "印度尼西亚", "IE": "爱尔兰", "IL": "以色列", "IT": "意大利",
-          "JP": "日本", "KE": "肯尼亚", "KR": "韩国", "MY": "马来西亚",
-          "MX": "墨西哥", "NL": "荷兰", "NZ": "新西兰", "NG": "尼日利亚",
-          "NO": "挪威", "PK": "巴基斯坦", "PH": "菲律宾", "PL": "波兰",
-          "PT": "葡萄牙", "RO": "罗马尼亚", "RU": "俄罗斯", "SA": "沙特阿拉伯",
-          "ZA": "南非", "ES": "西班牙", "SE": "瑞典", "CH": "瑞士",
-          "TW": "台湾", "TH": "泰国", "TR": "土耳其", "UA": "乌克兰",
-          "AE": "阿联酋", "GB": "英国", "US": "美国", "VN": "越南",
-        }
-
-        # fetch_channel_fields 里改这一行
-        country_code = snippet.get("country", "")
-        "国家/地区":     COUNTRY_MAP.get(country_code, country_code) or None,
+        "国家/地区":     snippet.get("country", "") or None,
         "邮箱":          email or None,
         "订阅量":        int(stats["subscriberCount"])
                          if not stats.get("hiddenSubscriberCount") and stats.get("subscriberCount")
