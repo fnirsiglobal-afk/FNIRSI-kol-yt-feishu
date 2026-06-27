@@ -279,7 +279,7 @@ async def fetch_channel_fields(client: httpx.AsyncClient, channel_url: str) -> d
         "X":             hyperlink(social.get("X")),
         "FB":            hyperlink(social.get("FB")),
         "TK":            hyperlink(social.get("TK")),
-        "最后推送时间":  now_ts(),
+        "最后更新时间":  now_ts(),
         # 刷新完成后把状态写回「已完成」
         "刷新状态":      STATUS_DONE,
     }
